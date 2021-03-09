@@ -1,0 +1,227 @@
+library(tidyverse)
+library(openxlsx)
+library(survival)
+library(survminer)
+library(table1)
+
+
+trans_histo <- function(d){
+  if (is.na(d) | d =='blank(s)') return(NA)
+  d <- d %>% as.character() %>% as.numeric()
+  if (d == 8070) return('Squamous cell carcinoma')
+  if (d == 8200) return('Adenoid cystic carcinoma')
+  if (d == 8430) return('Mucoepidermoid carcinoma')
+  if (d == 8550) return('Acinic cell carcinoma')
+  if (d == 8500) return('Salivary duct carcinoma')
+  if (d %in% c(8525,8440,8140)) return('Adenocarcinoma NOS')
+  if (d %in% c(8562,8982,8310,8082,8290,8020,8013,8041,8410,8502)) return('Other salivary gland carcinomas')
+  return(NA)
+}
+trans_t <- function(d){
+  if (is.na(d)|d=='Blank(s)'|str_detect(d,'X|T0')) return(NA)
+  if (str_detect(d,'4')) return('T4')
+  return(d)
+}
+
+trans_n <- function(d){
+  if (is.na(d)|d=='Blank(s)'|str_detect(d,'X')) return(NA)
+  if (str_detect(d,'2')) return('N2')
+  return(d)
+}
+table(seer.all$histo)
+trans_m <- function(d){
+  if (is.na(d)|d=='Blank(s)'|str_detect(d,'X')) return(NA)
+  return(d)
+}
+trans_stage <- function(d){
+  if (is.na(d) | d %in% c('Blank(s)','UNK Stage')) return(NA)
+  if (str_detect(d,'IV')) return('IV')
+  if (str_detect(d,'III')) return('III')
+  if (str_detect(d,'II')) return('II')
+  return('I')
+}
+
+
+
+
+
+
+######
+ljh <- read.csv('E:\\SEER\\ljh\\ljh.csv')
+ljh.sit <- read.csv('E:\\SEER\\ljh\\site.csv')
+ljh <- data.frame(ljh,
+                  Prim = ljh.sit[,2])
+                  
+# exclude criterion                  
+ljh <- ljh %>% 
+  filter(!Type.of.Reporting.Source %in% c('Autopsy only','Death certificate only')) %>% 
+  filter(Primary.by.international.rules =='Yes') %>% 
+  filter(Survival.months.flag == 'Complete dates are available and there are more than 0 days of survival')  %>% 
+  filter(Histologic.Type.ICD.O.3 %in% c(8070,8200,8430,8550,8562,8982,8525,8440,8140,8310,8082,8290,8020,8013,8041,8410,8502))
+
+ljh <- ljh %>% 
+  mutate(id = Patient.ID,
+         site = Prim,
+         age = Age.at.diagnosis,
+         sex  = Sex,
+         race = Race.recode..W..B..AI..API.,
+         marrtat = Marital.status.at.diagnosis,
+         seq = Sequence.number,
+         num = Total.number.of.in.situ.malignant.tumors.for.patient,
+         histo = Histologic.Type.ICD.O.3,
+         t1 = Derived.AJCC.T..6th.ed..2004.2015.,
+         t2 = Derived.AJCC.T..7th.ed..2010.2015.,
+         n1 = Derived.AJCC.N..6th.ed..2004.2015.,
+         n2 = Derived.AJCC.N..7th.ed..2010.2015.,
+         m1 = Derived.AJCC.M..6th.ed..2004.2015.,
+         m2 = Derived.AJCC.M..7th.ed..2010.2015.,
+         stage1 = SEER.historic.stage.A..1973.2015.,
+         stage2 = Derived.AJCC.Stage.Group..6th.ed..2004.2015.,
+         stage3 = Derived.AJCC.Stage.Group..7th.ed..2010.2015.,
+         grade = Grade,
+         e1 = EOD.4...extent..1983.1987.,
+         e2 = EOD.10...extent..1988.2003.,
+         e3 = CS.extension..2004.2015.,
+         node1 = EOD.4...nodes..1983.1987.,
+         node2 = EOD.10...nodes..1988.2003.,
+         node3 = CS.lymph.nodes..2004.2015.,
+         s1 = EOD.4...size..1983.1987.,
+         s2 = EOD.10...size..1988.2003.,
+         s3 = CS.tumor.size..2004.2015.,
+         exam_node = Regional.nodes.examined..1988..,
+         pos_node = Regional.nodes.positive..1988..,
+         surg = Reason.no.cancer.directed.surgery,
+         rad = Radiation.recode,
+         radseq = Radiation.sequence.with.surgery,
+         chemo = Chemotherapy.recode..yes..no.unk.,
+         stime = Survival.months,
+         dcause = SEER.cause.specific.death.classification,
+         deathcause1 = COD.to.site.recode,
+         deathcause2 = COD.to.site.rec.KM,
+         outcome = Vital.status.recode..study.cutoff.used.,
+         year = Year.of.diagnosis) %>% 
+  dplyr::select(id:year)
+  
+  
+  
+ljh <- ljh %>% 
+  mutate(histo = apply(data.frame(histo),1, trans_histo),
+         t = apply(data.frame(t1),1,trans_t),
+         n = apply(data.frame(n1),1,trans_n),
+         m = apply(data.frame(m1),1,trans_m),
+         stage = apply(data.frame(stage2),1,trans_stage),
+         extent = apply(data.frame(stage1),1,function(d){
+           if (is.na(d)| d %in% c('Blank(s)','Unstaged')) return(NA)
+           return(d)
+         }),
+         age_group = cut(age,c(-1,64,Inf),c('<65','≥65')),
+         race = apply(data.frame(race),1,function(d){
+           if (is.na(d)) return(NA)
+           if (str_detect(d,'White')) return('White')
+           if (str_detect(d,'Black')) return('Black')
+           return('Other')
+         }),
+         marrtat = apply(data.frame(marrtat),1,function(d){
+           if (is.na(d)) return(NA)
+           if (str_detect(d,'Married')) return('Married')
+           return('Unmarried')
+         }),
+         grade = apply(data.frame(grade),1,function(d){
+           if (is.na(d)) return(NA)
+           if (str_detect(d,'IV')) return('IV')
+           if (str_detect(d,'III')) return('III')
+           if (str_detect(d,'II')) return('II')
+           if (str_detect(d,'I')) return('I')
+           return(NA)
+         }),
+         # pos_node = apply(data.frame(exam_node,pos_node),1,function(d){
+         #   d <- as.numeric(d %>% as.character())
+         #   if (is.na(d[1] | d[1] >90)) return(NA)
+         #   if (d[1]==0) return('0')
+         #   return(cut(as.numeric(d[2] %>% as.character()),c(-1,0,4,90),c('0','1-4','>4')) %>% as.character())
+         # }),
+         pos_node = cut(as.numeric(pos_node %>% as.character()),c(-1,0,4,90),c('0','1-4','>4')),
+         exam_node = cut(as.numeric(exam_node %>% as.character()),c(-1,6,18,90),c('≤6','7-18','>18')),
+         surg = apply(data.frame(surg),1,function(d){
+           if (str_detect(d,'Surgery performed')) return('Yes')
+           return('No/Unknown')
+         }),
+         rad = apply(data.frame(rad),1,function(d){
+           if (str_detect(d,'beam|radiation|Radi')) return('Yes')
+           return('No/Unknown')
+         }),
+         stime = stime %>% as.character() %>% as.numeric(),
+         outcome = ifelse(outcome == 'Alive',0,1)) %>% 
+  dplyr::select(-c(t1,t2,n1,n2,m1,m2,stage1,stage2,stage3))
+  
+# added exclude criterion: we will focus on patients (only one cancer) and patients (oro as the second cancer and only 2 cancer)
+ljh <- ljh %>% filter(num<3)
+
+# patient group 1 :11666
+seer.only <- ljh %>% 
+  filter(seq == 'One primary only')
+# patient group 2 :2271
+seer.sec <- ljh %>% 
+  filter(seq == '2nd of 2 or more primaries')
+
+## in this part, other information was used to impute the missing value of TNM
+seer.all <- rbind(seer.only,seer.sec) %>% 
+  mutate(seq = droplevels(seq %>% as.factor()),
+         radseq = apply(radseq %>% as.data.frame,1,function(d){
+           if (is.na(d)) return(NA)
+           if (str_detect(d,'and/or')) return('No radiation or surgery')
+           if (str_detect(d,'Radiation after')) return('After')
+           if (str_detect(d,'before|prior|Intra')) return('Other')
+           return('Unknown')
+         })) %>% 
+  mutate(e2 = ifelse(e2 == 'Blank(s)',NA,e2 %>% as.character() %>% as.numeric()),
+         s2 = ifelse(s2 =='Blank(s)',NA,s2 %>% as.character() %>% as.numeric()),
+         node2 = ifelse(node2 == 'Blank(s)',NA,node2 %>% as.character() %>% as.numeric())) %>% 
+  mutate(impt = apply(data.frame(t,s2,e2), 1, function(d){
+    if (!is.na(d[1]) ) return(d[1])
+    d <- d[-1]
+    if (all(is.na(d))) return(NA)
+    d <- d %>% as.character %>% as.numeric()
+    if (d[1] %in% c(1,999) | d[2] == 99) return(NA)
+    # if (d[1]==0 | d[2]==0) return('T0')
+    if (d[2] %in% c(0,10,30)) return(cut(d[1],c(-1,0,20,40,990),c('T0','T1','T2','T3')) %>% as.character())
+    if (d[2] == 72) return('T3')
+    if (d[2] %in% c(70,71,80)) return('T4')
+    # if (between(d[1],41,990) & d[2]==72) return('T3')
+    if (between(d[1],41,990) | (d[2] %in% c(40,50,51))) return('T3/4')
+    return(NA)
+  }),
+  impn = apply(data.frame(n,node2),1,function(d){
+    if (!is.na(d[1])) return(d[1])
+    if (all(is.na(d))) return(NA)
+    d <- na.omit(d)
+    d <- d %>% as.numeric()
+    if (d[2] %in% c(4,7,8,9)) return(NA)
+    return(cut(d,c(-1,0,1,5,6),c('N0','N1','N2','N3')) %>% as.character())
+  }),
+  impm = apply(data.frame(m,e2),1,function(d){
+    if (!is.na(d[1])) return(d[1])
+    if (all(is.na(d)) | d[2] == 99) return(NA)
+    d <- na.omit(d)
+    if (d == 85) return('M1')
+    return('M0')
+  })) %>% 
+  mutate(comt  = ifelse(impt %in% c('T3','T4'),'T3/4',impt)) %>% 
+  mutate(comt = ifelse(comt  == 'T0',NA,comt))
+  
+
+# the first.info dataset has the information for each patients with multiple cancer (fisrt site, survival time)  
+first.info <- read.csv('E:\\SEER\\seer data\\first.csv')
+seq.info <- first.info %>% 
+  filter(Patient.ID %in% seer.sec$id) %>% 
+  dplyr::select(Patient.ID,
+                Primary.Site...labeled,
+                Histology.recode...Brain.groupings,
+                Histology.recode...broad.groupings,
+                Lymphoma.subtype.recode.WHO.2008,
+                Survival.months)
+colnames(seq.info)[1] <- 'id'
+
+seq.info <- seq.info %>% 
+  filter(id %in% seer.sec$id)  #1604
+rm(first.info)
