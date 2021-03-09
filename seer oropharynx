@@ -211,7 +211,7 @@ seer.all <- rbind(seer.only,seer.sec) %>%
   
 
 # the first.info dataset has the information for each patients with multiple cancer (fisrt site, survival time)  
-first.info <- read.csv('E:\\SEER\\seer data\\first.csv')
+first.info <- read.csv('E:\\SEER\\first.csv')
 seq.info <- first.info %>% 
   filter(Patient.ID %in% seer.sec$id) %>% 
   dplyr::select(Patient.ID,
@@ -223,5 +223,104 @@ seq.info <- first.info %>%
 colnames(seq.info)[1] <- 'id'
 
 seq.info <- seq.info %>% 
-  filter(id %in% seer.sec$id)  #1604
+  filter(id %in% seer.sec$id)  #1394
+# clean the workspace
 rm(first.info)
+
+seq.info <- seq.info %>% 
+  filter(id %in% seer.sec$id)  #1604 #1394
+rm(first.info)
+
+# this part clean the data and recategorize the first cancer information,  
+# create the 'fstime' variable to calculate the diagnosis time interval as a covairable;
+seq.info <- seq.info %>% 
+  mutate(type = apply(data.frame(Primary.Site...labeled,Histology.recode...broad.groupings),1,function(d){
+    if (all(is.na(d))) return(NA)
+    site <- d[1]; his <- d[2]
+    if (str_detect(site,'C(0|1[0-4])')){
+      if (str_detect(site,'C09.9') & str_detect(his,'9670|9700')) return('nhl-nodal')
+      if (str_detect(his,'9670|9720|9730')) return('nhl-extranodal')
+      return('Head and neck')
+    }
+    if (str_detect(site,'C1(5|6|7|8\\.[0-1])')){
+      if(str_detect(his,'9670|9590')) return('nhl-extranodal')
+      return('Digestive')
+    }
+    if (str_detect(site,'C(18|19|20|21)')) return('Coloretal')
+    #if (str_detect(site,'C(2|34\\.0|37|38\\.4|40\\.2)')) return('Other')
+    if (str_detect(site,'C2[2-6]')) return('other digestive')
+    if (str_detect(site,'C3[0-2]')){
+      if (str_detect(his,'9670')) return('nhl-extranodal')
+      return('Head and neck')
+    }
+    if (str_detect(site,'C34\\.0')) return('other breathing')
+    if (str_detect(site,'C34')){
+      if (str_detect(his,'9590|9670')) return('nhl-extranodal')
+      return('Lung')
+    }
+    if (str_detect(site,'C37|C38|C40|C41')){
+      if (str_detect(his,'9590|9730|9670')) return('nhl-extranodal')
+      if (str_detect(site,'C34\\.0|C38\\.4')) return('other breathing')
+      return('Other')
+    }
+    if (str_detect(site,'C42\\.0')) return('Miscellaneous')
+    if (str_detect(site,'C42\\.1')) {
+      if (str_detect(his,'9670|9730')) return('nhl-extranodal')
+      return('Lymphocytic Leukemia')
+    }
+    if (str_detect(site,'C42')) return('nhl-nodal')
+    if (str_detect(site,'C4')){
+      if (str_detect(his,'8720')) return('melanomas of skin')
+      if (str_detect(his,'9670|9700|9590')) return('nhl-extranodal')
+      return('non-melanomas of skin')
+    }
+    if (str_detect(site,'C50')) {
+      if (str_detect(his,'9670')) return('nhl-extranodal')
+      return('Breast')
+    }
+    if (str_detect(site,'C5')) return('female genital system')
+    if (str_detect(site,'C6[0-2]')){
+      if (str_detect(his,'8050|9060')) return('other male genital system')
+      if (str_detect(his,'9670')) return('nhl-extranodal')
+      return('Prostate')
+    }
+    if (str_detect(site,'C6|C7[0-6]')){
+      if (str_detect(his,'9670')) return('nhl-extranodal')
+      
+      if (str_detect(site,'C64')) return('Kidney')
+      if (str_detect(site,'C6[6-8]')) return('other urinary system')
+      if (str_detect(site,'C69')) return('eye and orbit')
+      if (str_detect(site,'C71')) return('Brain')
+      if (str_detect(site,'C73')) return('Thyroid')
+      if (str_detect(site,'C75')) return('Other')
+      if (str_detect(site,'C76')) return('Head and neck')
+    }
+    if (str_detect(site,'C77')){
+      if (str_detect(his,'9590|9670|9700')) return('nhl-nodal')
+      return('hodgkin lymphomas')
+    }
+    return('Unknown')
+  }),
+  fstime = as.numeric(Survival.months)) %>% 
+  mutate(com_type = apply(data.frame(type),1,function(d){
+    if (str_detect(d,'Lung|breathing')) return('Respiratory')
+    if (str_detect(d,'(D|d)igestive|Coloretal')) return('Digestive system')
+    if (str_detect(d,'melanomas')) return('Other')#return('Malignant neoplasms of skin')
+    if (str_detect(d,'Kidney|urinary|female')) return('Urogenital system')#return('Kidney and other urinary system')
+    if (str_detect(d,'nodal|hodgkin|Lymphocytic')) return('Other')#return('Haematopoietic or lymphoid tissues')
+    if (str_detect(d,'(O|o)ther|eye|Brain|Mis')) return('Other')
+    if (str_detect(d,'Thyroid')) return('Other')
+    return(d)
+  }))
+
+
+
+##### combine the first cancer information with the second oro cancer, time interval has the 'month' unit, which should be transfer to 'year' 
+seer.all <- seer.all %>% 
+  left_join(.,seq.info%>% dplyr::select(id,type,com_type,fstime),'id') 
+seer.all <- seer.all %>% 
+  mutate(timeinterval = fstime - stime,
+         extent = extent %>% as.factor() %>% relevel(ref = 'Localized'),
+         pos_node = pos_node %>% as.factor() %>% relevel(ref = '0')) %>% 
+  mutate(timeinterval_year = timeinterval/12 %>% round(2))
+
