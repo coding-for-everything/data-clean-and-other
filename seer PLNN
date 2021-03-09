@@ -257,6 +257,8 @@ dcause <- function(d,o ='n'){
 
 
 nodes$group <- ifelse(nodes$regional_pos == 0,'No positive','Positive')
+nodes$outcome <- ifelse(nodes$outcome=='Alive',0,1)
+# the variables 'onlyd' and 'compd' were used for calculate css and crr, and were derived from the 'outcome'(os) variable and 'deathcause' variable;   
 nodes <- nodes %>% 
   mutate(onlyd = apply(nodes[,c('outcome','deathcause')],1,dcause,'n'),
          compd = apply(nodes[,c('outcome','deathcause')],1,dcause,'c'))
@@ -269,13 +271,13 @@ nodes$maincov <- cut(nodes$regional_pos,
                      c('0','1-5','>5'))
 nodes$logcov <- ifelse(nodes$regional_pos>0,'Positive','Negative') %>% as.factor()
 #nodes$stime <- nodes$stime %>% as.character() %>% as.numeric()
-nodes$outcome <- ifelse(nodes$outcome=='Alive',0,1)
+
 
 ## maincov is the variable this study focus: the number of positive lym nodes;
 nodes$maincov <- cut(nodes$regional_pos,
                      c(-Inf,0,5,Inf),
                      c('0','1-5','>5'))
-nodes$outcome <- ifelse(nodes$outcome=='Alive',0,1)
+
 
 
 
@@ -283,11 +285,13 @@ nodes$outcome <- ifelse(nodes$outcome=='Alive',0,1)
 ################################################ analysis part ########################################################
 nodes$size <- ifelse(nodes$size<2.1,'≤2','>2')
 nodes$size <- nodes$size %>% as.factor() %>%  relevel(ref = '≤2')
+# used cut() to create the surgery primary site varible, which introduce an 'NA' as a factor;
+nodes$surg_primsite <- nodes$surg_primsite %>% as.character() %>% as.factor()
 
 ### this function is used to get the single factor analysis of survival;
 # xdata is the dataset we study; 
 # unicov is a vector contains variable names we want to explore which should be contained in the dataset(xdata);
-# target is a character to indicate which variable will be used to calculate the outcome (os/css), should be one of the colnames of dataset;
+# target is a character vector to indicate which variables will be used to calculate the outcome (os/css), should be one of the colnames of dataset;
 # this function now is only used for category;
 # the outcome of analysis can be showed in the utable(list)
 unitable <- function(xdata,target){
