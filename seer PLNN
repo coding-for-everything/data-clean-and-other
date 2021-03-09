@@ -270,3 +270,47 @@ nodes$maincov <- cut(nodes$regional_pos,
 nodes$logcov <- ifelse(nodes$regional_pos>0,'Positive','Negative') %>% as.factor()
 #nodes$stime <- nodes$stime %>% as.character() %>% as.numeric()
 nodes$outcome <- ifelse(nodes$outcome=='Alive',0,1)
+
+## maincov is the variable this study focus: the number of positive lym nodes;
+nodes$maincov <- cut(nodes$regional_pos,
+                     c(-Inf,0,5,Inf),
+                     c('0','1-5','>5'))
+nodes$outcome <- ifelse(nodes$outcome=='Alive',0,1)
+
+
+
+
+################################################ analysis part ########################################################
+nodes$size <- ifelse(nodes$size<2.1,'≤2','>2')
+nodes$size <- nodes$size %>% as.factor() %>%  relevel(ref = '≤2')
+
+### this function is used to get the single factor analysis of survival;
+# xdata is the dataset we study; 
+# unicov is a vector contains variable names we want to explore which should be contained in the dataset(xdata);
+# target is a character to indicate which variable will be used to calculate the outcome (os/css), should be one of the colnames of dataset;
+# this function now is only used for category;
+# the outcome of analysis can be showed in the utable(list)
+unitable <- function(xdata,target){
+  utable[[target[2]]] <<- NULL
+  xdata <- xdata %>% dplyr::select(all_of(unicov),all_of(target))
+  xdata <- xdata %>% 
+    mutate(ss = Surv(stime,xdata[,target[2]])) %>% 
+    dplyr::select(-all_of(target))
+  for (i in 1:length(unicov)){
+    mdata <- xdata[,c('ss',unicov[i])]    
+    if (unicov[i] == 'Age') mdata[,2] <- apply(mdata[,2] %>% as.matrix(),1,function(d){return(ifelse(d<66,'≤65','>65'))}) %>% as.factor()%>% relevel(ref = '≤65')
+    model1 <<- summary(coxph(ss~.,data = mdata))
+    utable[[target[2]]] <<- rbind(utable[[target[2]]],
+                                  c(paste0(unicov[i],'(n=',model1$n,',nevent=',model1$nevent,')'),'',''),
+                                  cbind(paste0('  ',names(table(mdata[,2]))),
+                                        HR = c(1,paste0(round(model1$conf.int[,'exp(coef)'],2),
+                                                        '(',round(model1$conf.int[,'lower .95'],2),
+                                                        ',',round(model1$conf.int[,'upper .95'],2),')')),
+                                        pvalue = c('',round(model1$coefficients[,'Pr(>|z|)'],3) %>% ifelse(.==0,'<0.001',.))
+                                  ))
+  }
+}
+unicov <- c('Prims','sex','Race','Marstat','Age','grade','surg_primsite','Radio','extent',
+            'Radioseq','Chem','extent','dissection','size')
+utable <- list()
+unitable(nodes,c('stime','outcome'))
