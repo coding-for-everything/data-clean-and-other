@@ -324,3 +324,34 @@ seer.all <- seer.all %>%
          pos_node = pos_node %>% as.factor() %>% relevel(ref = '0')) %>% 
   mutate(timeinterval_year = timeinterval/12 %>% round(2))
 
+######################################### this part focus on the second cancer ####################################################
+pcov <- pcov %>% 
+  mutate(com_type = com_type %>% as.factor() %>% relevel(ref = 'Head and neck'),
+         timeinterval_group = cut(timeinterval,c(0,36,60,120,Inf),c('=<3','3-5','5-10','>10')) %>% relevel(ref = '=<3'),
+         exam_node = exam_node %>% as.factor() %>% relevel(ref = '≤6'))
+
+unitable <- function(xdata,target){
+  utable[[target[2]]] <<- NULL
+  xdata <- xdata %>% dplyr::select(all_of(unicov),all_of(target))
+  xdata <- xdata %>% 
+    mutate(ss = Surv(stime,xdata[,target[2]])) %>% 
+    dplyr::select(-all_of(target))
+  for (i in 1:length(unicov)){
+    mdata <- xdata[,c('ss',unicov[i])]    
+    # if (unicov[i] == 'Age') mdata[,2] <- apply(mdata[,2] %>% as.matrix(),1,function(d){return(ifelse(d<66,'≤65','>65'))}) %>% as.factor()%>% relevel(ref = '≤65')
+    model1 <<- summary(coxph(ss~.,data = mdata))
+    utable[[target[2]]] <<- rbind(utable[[target[2]]],
+                                  c(paste0(unicov[i],'(n=',model1$n,',nevent=',model1$nevent,')'),'',''),
+                                  cbind(paste0('  ',names(table(mdata[,2]))),
+                                        HR = c(1,paste0(round(model1$conf.int[,'exp(coef)'],2),
+                                                        '(',round(model1$conf.int[,'lower .95'],2),
+                                                        ',',round(model1$conf.int[,'upper .95'],2),')')),
+                                        pvalue = c('',round(model1$coefficients[,'Pr(>|z|)'],3) %>% ifelse(.==0,'<0.001',.))
+                                  ))
+  }
+}
+
+
+unicov <- c('age_group','sex','race','marrtat','site','com_type','histo','grade','comt','impn','impm','extent','surg','rad','radseq','chemo','exam_node','timeinterval_group')
+utable <- list()
+unitable(pcov,c('stime','outcome'))
