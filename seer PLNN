@@ -278,6 +278,36 @@ nodes$maincov <- cut(nodes$regional_pos,
                      c(-Inf,0,5,Inf),
                      c('0','1-5','>5'))
 
+############################################### baseline part ########################################################
+unicov <- c('Prims','sex','Race','Marstat','Age','grade','surg_primsite','Radio','extent',
+            'Radioseq','Chem','extent','dissection','size')
+table(nodes$sex,nodes$maincov) %>% chisq.test()
+
+#this fucnction is used to chi-square test for covariables and main variable;
+# a is a set of character which contains the covairables names;
+# b is the main variable
+# data is the dataset 
+chisq.table <- function(a,t,data){
+  p <<- NULL
+  for (i in a){
+    xx <- data[,c(all_of(i),all_of(t))]
+    colnames(xx) <- c('x','y')
+    allxx <- xx
+    xx <- na.omit(xx)
+    if (is.character(xx$x)) xx$x <- as.factor(xx$x)
+    m <- table(xx) %>% chisq.test()
+    p <<- rbind(p,c(all_of(i),rep('',length(levels(xx$y))+2)),
+               cbind(levels(xx$x),
+                     apply(table(xx), 1, sum),
+                     table(xx),
+                     c(ifelse(round(m$p.value,3)==0,'<0.001',round(m$p.value,3)),rep('',length(levels(xx$x))-1))),
+               c('Missing',(table(allxx$y)-apply(table(xx),2,sum)) %>% sum(),table(allxx$y)-apply(table(xx),2,sum),''),
+               rep('',length(levels(xx$y))+3))
+  }
+}
+chisq.table(c('Prims','sex','Race','Marstat','Age','grade','surg_primsite','Radio','extent',
+              'Radioseq','Chem','t','n','m','stage','extent','dissection','size'),'group',nodes)
+
 
 
 
@@ -315,6 +345,11 @@ unitable <- function(xdata,target){
   }
 }
 unicov <- c('Prims','sex','Race','Marstat','Age','grade','surg_primsite','Radio','extent',
-            'Radioseq','Chem','extent','dissection','size')
+            'Radioseq','Chem','extent','dissection','size','t','n','m','stage')
 utable <- list()
 unitable(nodes,c('stime','outcome'))
+unitable(nodes,c('stime','onlyd'))
+
+############# end
+# the data clean part was finished;
+# chi-square test and single factor survival analysis was finished;
