@@ -1,0 +1,290 @@
+library(tidyverse)
+library(data.table)
+library(table1)
+
+library(survival)
+library(cmprsk)
+library(survminer)
+
+
+library(reportRx)
+library(knitr)
+library(xtable)
+library(aod)
+
+dyj <- read.csv('E:\\SEER\\dyj\\dyj.csv')
+data_0 <- dyj %>% mutate(id = Patient.ID,
+                        Prims = Primary.Site...labeled,
+                        Race = Race.ethnicity,
+                        Marstat = Marital.status.at.diagnosis,
+                        Seq = Sequence.number,
+                        sex = Sex,
+                        Year = Year.of.diagnosis,
+                        Age = Age.at.diagnosis,
+                        Ins = Insurance.Recode..2007..,
+                        histo2 = Histology.ICD.O.2 %/% 10,
+                        histo3 = Histologic.Type.ICD.O.3  %/% 10,
+                        behav2 = Behavior.code.ICD.O.2,
+                        behav3 = Behavior.code.ICD.O.3,
+                        behav_a = Behavior.recode.for.analysis,
+                        grade = Grade,
+                        t3 = T.value...based.on.AJCC.3rd..1988.2003.,
+                        t6 = Derived.AJCC.T..6th.ed..2004.2015.,
+                        t7 = Derived.AJCC.T..7th.ed..2010.2015.,
+                        t_c = Derived.SEER.Combined.T..2016..,
+                        n3 = N.value...based.on.AJCC.3rd..1988.2003.,
+                        n6 = Derived.AJCC.N..6th.ed..2004.2015.,
+                        n7 = Derived.AJCC.N..7th.ed..2010.2015.,
+                        n_c = Derived.SEER.Combined.N..2016..,
+                        m3 = M.value...based.on.AJCC.3rd..1988.2003.,
+                        m6 = Derived.AJCC.M..6th.ed..2004.2015.,
+                        m7 = Derived.AJCC.M..7th.ed..2010.2015.,
+                        m_c = Derived.SEER.Combined.M.Src..2016..,
+                        stage3 = AJCC.stage.3rd.edition..1988.2003.,
+                        stage6 = Derived.AJCC.Stage.Group..6th.ed..2004.2015.,
+                        stage7 = Derived.AJCC.Stage.Group..7th.ed..2010.2015.,
+                        stage_c = Derived.SEER.Cmb.Stg.Grp..2016..,
+                        size1 = EOD.10...size..1988.2003.,
+                        size2 = CS.tumor.size..2004.2015.,
+                        ex1 = EOD.10...extent..1988.2003.,
+                        ex2 = CS.extension..2004.2015.,
+                        met_cs = CS.mets.at.dx..2004.2015.,
+                        met_ln = Mets.at.DX.Distant.LN..2016..,
+                        met_other = Mets.at.DX.Other..2016..,
+                        node1 = EOD.10...nodes..1988.2003.,
+                        node2 = CS.lymph.nodes..2004.2015.,
+                        regional_pos = Regional.nodes.positive..1988..,
+                        regional_exam = Regional.nodes.examined..1988..,
+                        surg_no_reason = Reason.no.cancer.directed.surgery,
+                        surg_primsite = RX.Summ..Surg.Prim.Site..1998..,
+                        Radio = Radiation.recode,
+                        Chem = Chemotherapy.recode..yes..no.unk.,
+                        outcome = Vital.status.recode..study.cutoff.used.,
+                        deathcause = SEER.cause.specific.death.classification,
+                        cod_site = COD.to.site.recode,
+                        stime = Survival.months) 
+data_0 <- data_0[,122:ncol(data_0)]
+
+########################  function part ###### strat ####
+trans_histo <- function(d){
+  if (all(is.na(d))) return(NA)
+  d <- na.omit(d)
+  h <- cut(d,c(-Inf,804,808,813,838,Inf),c('Other','Squamous cell carcinoma','Other','Adenocarcinoma','Other'))
+  if (length(h) == 1) return(h)
+  return(h[2])
+}
+trans_grade <- function(d){
+  if (is.na(d)) return(NA)
+  if (d == 'Unknown') return(NA)
+  if (str_detect(d,'IV')) return('IV')
+  if (str_detect(d,'III')) return('III')
+  if (str_detect(d,'II')) return('II')
+  if (str_detect(d,'I')) return('I')
+  return(NA)
+}
+
+trans_t <- function(d){
+  d[which(d=='Blank(s)')] <- NA
+  if (all(is.na(d))) return(NA)
+  d <- na.omit(d)
+  if (length(d)==2) d <- d[2]
+  if (d %in% c('T0','Tis','TX')) return(NA)
+  if (d %in% c('T4','T1','T2','T3')) return(d)
+  return('T4')
+}
+
+trans_n <- function(d){
+  d[which(d=='Blank(s)')] <- NA
+  if (all(is.na(d))) return(NA)
+  d <- na.omit(d)
+  if (length(d)==2) d <- d[2]
+  if (d == 'NX') return(NA)
+  if (d %in% c('N0','N1','N1','N3','NX')) return(d)
+  return('N2')
+}
+
+
+trans_m <- function(d){
+  d[which(d=='Blank(s)')] <- NA
+  if (all(is.na(d))) return(NA)
+  d <- na.omit(d)
+  if (length(d)==2) d <- d[2]
+  if (str_detect(d,'X')) return(NA)
+  return(d)
+}
+
+trans_stage <- function(d){
+  d[which(d == 'Blank(s)')] <- NA
+  d[which(d == 'UNK Stage')] <- NA
+  if (all(is.na(d))) return(NA)
+  d <- na.omit(d)
+  if (length(d)==2) d <- d[2]
+  if (str_detect(d,'IV')) return('IV')
+  if (str_detect(d,'III')) return('III')
+  if (str_detect(d,'I')) return('I/II')
+  return(NA)
+}
+
+trans_ex <- function(d){
+  d <- as.numeric(d)
+  if (all(is.na(d))) return(NA)
+  #1 EOD, 2CS
+  d <- na.omit(d)
+  if (d<100)  return(cut(d,c(-Inf,0,10,12,30,40,50,51,55,60,61,62,80,85,99),
+                         c('Noninvasive','Local',NA,'Local','Regional',
+                           'Regional','Local','Regional','Local',
+                           'Regional','Regional','Local',
+                           'Metastasis',NA)) %>% as.character())
+  if (d %in% c(110,210,305,310,455,565,638,810,815,950,999)) return(NA)
+  return(cut(d,
+             c(-Inf,0,300,400,450,500,510,550,560,600,610,660,800,Inf),
+             c('Noninvasive','Local','Regional','Local','Regional',
+               'Local','Regional','Regional','Local',
+               'Regional','Local','Local',NA)) %>% as.character())
+}
+
+trans_node <- function(d){
+  d[which(d == 'Blank(s)')] <- NA
+  if (all(is.na(d))) return(NA)
+  x <- which(!is.na(d))
+  d <- na.omit(d)
+  d <- as.numeric(as.character(d))
+  if (x==1){return(cut(d,c(-Inf,0,8,9),c('No','Yes',NA)))}
+  return(cut(d,c(-Inf,0,998,999),c('No','Yes',NA)))
+}
+
+surg_nreason <- function(d){
+  if (d %in% c('Not recommended','Surgery performed')) return(d)
+  if (str_detect(d,'contrain')) return('Contraindicated due to other conditions')
+  if (str_detect(d,'refused')) return('Refused')
+  if (str_detect(d,'died prior to')) return('Died before surgery')
+  if (str_detect(d,'unknown|Unknown')) return(NA)
+}
+
+dcause <- function(d,o ='n'){
+  if (d[1]=='Alive') return(0)
+  if (d[1]=='Dead' & str_detect(d[2],'attributable')) return(1)
+  return(ifelse(o =='c',2,0))
+}
+###################  function part #### end #####
+
+
+data_1 <- data_0 %>% mutate(histo = apply(data.frame(histo2,histo3),1,trans_histo),
+                            behav = behav_a,
+                            grade = apply(data.frame(grade),1,trans_grade),
+                            t = apply(data.frame(t6,t7),1,trans_t),
+                            n = apply(data.frame(n6,n7),1,trans_n),
+                            m = apply(data.frame(m6,m7),1,trans_m),
+                            stage = apply(data.frame(stage6,stage7),1,trans_stage),
+                            #            size = apply(data.frame(size1,size2),1,trans_size),
+                            extent = apply(data.frame(ex1,ex2),1,trans_ex),
+                            met_cs = cut(as.numeric(as.character(met_cs)),
+                                         c(-Inf,0,10,40,50,60,99),
+                                         c('No metastasis','Distant lymph nodes','Distant metastasis','Both','Distant metastasis',NA)),
+                            node = apply(data.frame(node1,node2),1,trans_node),
+                            surg_primsite = cut(surg_primsite %>% as.character() %>% as.numeric(),
+                                                c(-Inf,0,27,28,32,43,52,99),
+                                                c('0','Local',NA,'Pharyngectomy','Pharyngectomy with mandi','Radical Pharyngectomy',NA)),
+                            regional_pos = apply(data.frame(data_0$regional_pos),1,function(d){
+                              d <- as.numeric(as.character(d))
+                              if (is.na(d)) return(d)
+                              if (d %in% c(0:89)) return(d)
+                              return(NA)
+                            }),
+                            regional_exam = apply(data.frame(data_0$regional_exam),1,function(d){
+                              d <- as.numeric(as.character(d))
+                              if (is.na(d)) return(d)
+                              if (d %in% c(0:89)) return(d)
+                              return(NA)
+                            }))
+data_1 <- data_1 %>% 
+  mutate(loglr = ((regional_pos+0.5)/(regional_exam-regional_pos+0.5)) %>% log(),
+         lr  = (regional_pos+0.5)/(regional_exam-regional_pos+0.5))
+
+
+data_2 <- data_1 %>% 
+  mutate(Race = ifelse(Race %in% c('White','Black'),Race %>% as.character(),'Others'),
+         Marstat = apply(data.frame(Marstat),1,function(d){
+           if (str_detect(d,'Married')) return('Married')
+           if (str_detect(d,'Single')) return('Single')
+           if (str_detect(d,'Unknown')) return(NA)
+           return('Other')
+         }),
+         Ins = apply(data.frame(Ins),1,function(d){
+           if (str_detect(d,'Any Medicaid|Insured')) return('Any Medicaid/Insured')
+           if (d == 'Uninsured') return(d)
+           return('Unknown')}),
+         Radio = ifelse(str_detect(Radio,'None|Refused|unknown'),'None/Unknown','Yes'),
+         compd = apply(data.frame(outcome,deathcause),1,dcause,'c'),
+         onlyd = apply(data.frame(outcome,deathcause),1,dcause),
+         stime = stime %>% as.character() %>% as.numeric(),
+         outcome = ifelse(outcome =='Alive',0,1)) %>% 
+  mutate(Chemandradio = apply(data.frame(Radio,Chem),1,function(d){
+    if (all(d=='Yes')) return('Yes')
+    if (d[1]=='Yes') return('Radio')
+    if (d[2]=='Yes') return('Chem')
+    return('No/Unknown')
+  })) %>% 
+  mutate(Chemandradio = relevel(Chemandradio %>% as.factor(),ref = 'No/Unknown')) %>% 
+  select(-c(deathcause)) %>% 
+  filter(!is.na(stime),!is.na(regional_exam),!is.na(regional_pos)) %>% 
+  filter(stime>0)
+
+data_2 <- data_2 %>% 
+  mutate(surg_pri_new = apply(surg_primsite %>% data.frame(),1,function(d){
+    if (is.na(d)) return(NA)
+    if (d == '0') return('No surgery')
+    return('Surgery')
+  }),
+  Chemandradio = Chemandradio %>% relevel(.,ref = 'No/Unknown'),
+  cutoff = apply(loglr %>% as.data.frame(),1,function(d) return(ifelse(d < -2.31,'LODDS<-2.31','LODDS≥-2.31'))),
+  Age_group = cut(Age,c(0,65,Inf),c('≤65','>65'))
+  )
+
+
+#####part 2 # other include-exclude criterion, the most important change:surgery 
+data_3 <- data_2 %>%  #2886
+  filter(behav == 'Malignant') %>%  #2882
+  filter(histo == 'Squamous cell carcinoma') %>%  #2785
+  filter(m == 'M0') %>%  #956
+  filter(surg_pri_new == 'Surgery') #652
+
+data_3$cutoff <- ifelse(data_3$lr>0.04,'LODDS>-3.22','LODDS<-3.22')
+
+t1 <- data_3 %>% 
+  select(id,Prims,Race,Marstat,sex,Year,Age,grade,extent,t,n,regional_exam,regional_pos,Radio,Chem,cutoff)
+for (i in colnames(t1)){
+  if (is.character(t1[,i])) t1[,i] <- as.factor(t1[,i])
+}
+
+pcovsum(data = t1,
+        covs = t1 %>% select(-c('n','id')) %>% colnames(),
+        maincov = 'n')
+makedocx('E:\\SEER\\dyj\\outcome7\\',
+         'table2_n',
+         'D:\\R\\Rstudio\\bin\\pandoc\\',
+         'D:\\Download\\ImageMagick-7.0.10-Q16-HDRI\\'
+)
+
+t <- coxph(Surv(stime,onlyd)~Prims+Marstat+Age_group+Chemandradio+t+cutoff,data = data_3) %>% summary()
+
+# to write the HR and 95%CI, and according p value 
+cbind(paste0(t$conf.int[,1] %>% round(2),
+       '(',t$conf.int[,3] %>% round(2),
+       '-',t$conf.int[,4] %>% round(2),')'),
+t$coefficients[,'Pr(>|z|)'] %>% round(3)) %>% 
+  write.csv('E:\\SEER\\dyj\\outcome7\\p.csv')
+
+t <- coxph(Surv(stime,outcome)~Prims+Marstat+Age_group+Chemandradio+t+cutoff,data = data_3) 
+t <- survfit(Surv(stime,onlyd)~cutoff,data = data_3)
+ggsurvplot(t, # 创建的拟合对象
+           data = data_3 ,  # 指定变量数据来源
+           #    conf.int = TRUE, # 显示置信区间
+           pval = TRUE, # 添加P值
+           # surv.median.line = "hv",  # 添加中位生存时间线
+           risk.table = TRUE, # 添加风险表
+           xlab = "Follow up time(m)", # 指定x轴标签
+           legend = c(0.8,0.2), # 指定图例位置
+           legend.title = "", # 设置图例标题
+           #          legend.labs = c("LODDS<-3.21", "LODDS≥-3.21"), # 指定图例分组标签
+           break.x.by = 50)  # 设置x轴刻度间距
