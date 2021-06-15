@@ -1,0 +1,52 @@
+# to extract inpatient records at baseline and during the follow-up
+
+
+icd9 <- read.csv('D:\\lyx\\dataset\\icd9_diagnose.csv',stringsAsFactors = FALSE)
+icd10 <- read.csv('D:\\lyx\\dataset\\icd10_diagnose.csv',stringsAsFactors = FALSE)
+
+diag <- icd9 %>% 
+  dplyr::select(eid,matches('x41271'))
+date <- icd9 %>% 
+  dplyr::select(eid,matches('x41281'))
+
+diag <- icd9 %>% 
+ dplyr::select(eid,matches('x41270'))
+date <- icd10 %>% 
+  dplyr::select(eid,matches('x41280'))
+indate <- read.csv('D:\\lyx\\covid\\dataset\\indate.csv',stringsAsFactors = FALSE)
+
+###disease at baseline
+standarddate <- function(d,indate){
+  d[which(d=='')] <- NA
+  d <- as.Date(d)
+  return(difftime(d,indate,units = 'days') %>% as.numeric())
+}
+newdate <- apply(date[,-1], 2, standarddate,indate$indate %>% as.Date)
+
+base <- ifelse(newdate<0,'base','follow')
+base[is.na(base)] <- ''
+base[base=='follow'] <- date[,-1][base=='follow']
+base[base=='base'] <- ''
+write.csv(data.frame(eid = date$eid,
+                     base),'D:\\lyx\\dataset\\base_icd9.csv',row.names = FALSE)
+
+
+
+x <- data.frame(eid = date$eid,
+                base)
+
+y <- data.frame(eid=indate$eid,
+                base)
+z <- NULL
+for (i in 2:ncol(x)){
+  z <- cbind(z,x[,i] %>% as.character(),y[,i] %>% as.character())
+}
+z <- data.frame(eid = indate$eid,
+                z)
+
+newname <- NULL
+for ( i in 1:47) {
+  newname <- c(newname,paste0('icd10_',i),paste0('date10_',i))
+}
+colnames(z) <- c('eid',newname)
+write.csv(z,'D:\\lyx\\dataset\\follow_icd9.csv',row.names = FALSE)
